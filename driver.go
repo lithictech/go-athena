@@ -5,6 +5,8 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"github.com/aws/aws-sdk-go/aws/client"
+	"github.com/aws/aws-sdk-go/service/athena/athenaiface"
 	"net/url"
 	"sync"
 	"time"
@@ -76,7 +78,7 @@ func (d *Driver) Open(connStr string) (driver.Conn, error) {
 	}
 
 	return &conn{
-		athena:         athena.New(cfg.Session),
+		athena:         cfg.ServiceFactory(cfg.Session),
 		db:             cfg.Database,
 		OutputLocation: cfg.OutputLocation,
 		pollFrequency:  cfg.PollFrequency,
@@ -99,6 +101,12 @@ func Open(cfg Config) (*sql.DB, error) {
 		return nil, errors.New("session is required")
 	}
 
+	if cfg.ServiceFactory == nil {
+		cfg.ServiceFactory = func(p client.ConfigProvider, opts ...*aws.Config) athenaiface.AthenaAPI {
+			return athena.New(p, opts...)
+		}
+	}
+
 	// This hack was copied from jackc/pgx. Sorry :(
 	// https://github.com/jackc/pgx/blob/70a284f4f33a9cc28fd1223f6b83fb00deecfe33/stdlib/sql.go#L130-L136
 	openFromSessionMutex.Lock()
@@ -116,7 +124,8 @@ type Config struct {
 	Database       string
 	OutputLocation string
 
-	PollFrequency time.Duration
+	PollFrequency  time.Duration
+	ServiceFactory func(client.ConfigProvider, ...*aws.Config) athenaiface.AthenaAPI
 }
 
 func configFromConnectionString(connStr string) (*Config, error) {
